@@ -782,7 +782,7 @@ def main():
     # 按近 1 年收益排序（缺失沉底）
     def y1_key(it):
         v = (it.get("returns") or {}).get("y1")
-        return (0, 0) if v is None else (1, -v)
+        return (1, 0) if v is None else (0, -v)
 
     etf_items.sort(key=y1_key)
     otc_items.sort(key=y1_key)
