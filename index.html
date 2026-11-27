@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="description" content="全球基金查询 · 非A股基金数据门户：跨境ETF、QDII、ETF联接等全球权益类基金的查询、筛选、排序与对比">
+<title>全球基金查询 · 非A股基金数据门户</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23B89B5E'/%3E%3Cpath d='M8 20l5-6 4 4 7-9' stroke='%23fff' stroke-width='2.6' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="assets/css/style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="brand">
+      <span class="brand-logo" aria-hidden="true">
+        <svg viewBox="0 0 32 32" width="30" height="30"><rect width="32" height="32" rx="7" fill="#B89B5E"/><path d="M8 20l5-6 4 4 7-9" stroke="#fff" stroke-width="2.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </span>
+      <div class="brand-text">
+        <h1 class="brand-name">全球基金查询</h1>
+        <span class="brand-sub">GLOBAL FUND SCREENING</span>
+      </div>
+    </div>
+    <nav class="topnav" id="topnav">
+      <button class="topnav-link is-active" data-view="query">基金查询</button>
+      <button class="topnav-link" data-view="watch">自选基金<span class="topnav-badge" id="watchBadge" hidden>0</span></button>
+    </nav>
+    <div class="topbar-right">
+      <div class="data-status" id="dataStatus" title="数据更新状态">
+        <span class="status-dot" id="statusDot"></span>
+        <span class="status-text">数据更新于 <b id="updatedAt">--</b></span>
+      </div>
+      <button class="btn btn-ghost btn-refresh" id="refreshBtn" title="手动刷新数据">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6"/></svg>
+        <span>刷新</span>
+      </button>
+    </div>
+  </div>
+</header>
+
+<main class="container">
+
+  <!-- 数据概览 -->
+  <section class="overview" id="overview" aria-label="数据概览">
+    <div class="ov-card"><div class="ov-num" id="ovTotal">--</div><div class="ov-label">收录基金（份额）</div></div>
+    <div class="ov-card"><div class="ov-num" id="ovEtf">--</div><div class="ov-label">场内基金</div></div>
+    <div class="ov-card"><div class="ov-num" id="ovOtc">--</div><div class="ov-label">场外基金</div></div>
+    <div class="ov-card"><div class="ov-num" id="ovRegion">--</div><div class="ov-label">覆盖国家/地区</div></div>
+    <div class="ov-card"><div class="ov-num" id="ovIndex">--</div><div class="ov-label">跟踪指数</div></div>
+  </section>
+
+  <!-- 查询面板 -->
+  <section class="card query-panel" aria-label="查询筛选">
+    <div class="tabs" role="tablist" id="tabBar">
+      <button class="tab is-active" role="tab" data-tab="etf">场内基金<span class="tab-count" id="tabCountEtf"></span></button>
+      <button class="tab" role="tab" data-tab="otc">场外基金<span class="tab-count" id="tabCountOtc"></span></button>
+    </div>
+
+    <div class="search-row">
+      <div class="search-box">
+        <svg class="search-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <input type="search" id="searchInput" placeholder="搜索基金名称 / 代码 / 指数 / 持仓股票 / 基金公司" autocomplete="off">
+      </div>
+      <button class="btn btn-outline advanced-toggle" id="advancedToggle" aria-expanded="false">
+        高级筛选<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="m6 9 6 6 6-6"/></svg>
+      </button>
+      <button class="btn btn-ghost" id="resetBtn">重置</button>
+      <div class="result-count" id="resultCount">共 -- 只</div>
+      <button class="btn btn-outline mobile-filter-btn" id="mobileFilterBtn" hidden>
+        筛选<span class="filter-badge" id="filterBadge" hidden></span>
+      </button>
+    </div>
+
+    <div class="filter-area" id="filterArea">
+      <div class="filter-group" data-f="regions">
+        <span class="filter-label">国家/地区</span>
+        <div class="chip-list" id="regionChips"></div>
+      </div>
+      <div class="filter-group" data-f="styles">
+        <span class="filter-label">基金类型</span>
+        <div class="chip-list" id="styleChips"></div>
+      </div>
+      <div class="filter-group" data-f="industries">
+        <span class="filter-label">行业主题</span>
+        <div class="chip-list" id="industryChips"></div>
+      </div>
+      <div class="filter-group" data-f="index">
+        <span class="filter-label">跟踪指数</span>
+        <select class="select" id="indexSelect"><option value="">全部指数</option></select>
+      </div>
+    </div>
+
+    <div class="advanced-panel" id="advancedPanel" hidden>
+      <div class="filter-group">
+        <span class="filter-label">规模（亿元）</span>
+        <div class="range-inputs">
+          <input type="number" id="scaleMin" placeholder="最小" min="0" step="0.1">
+          <span class="range-sep">—</span>
+          <input type="number" id="scaleMax" placeholder="最大" min="0" step="0.1">
+        </div>
+      </div>
+      <div class="filter-group">
+        <span class="filter-label">运作费率 ≤ %</span>
+        <input type="number" id="feeMax" class="single-input" placeholder="如 1.0" min="0" step="0.05">
+      </div>
+      <div class="filter-group etf-only">
+        <span class="filter-label">溢价率（%）</span>
+        <div class="range-inputs">
+          <input type="number" id="premMin" placeholder="最小" step="0.1">
+          <span class="range-sep">—</span>
+          <input type="number" id="premMax" placeholder="最大" step="0.1">
+        </div>
+      </div>
+      <div class="filter-group">
+        <span class="filter-label">近1年收益 ≥ %</span>
+        <input type="number" id="retMin" class="single-input" placeholder="如 20" step="1">
+      </div>
+      <div class="filter-group etf-only">
+        <span class="filter-label">流动性（成交额 ≥）</span>
+        <select class="select" id="liqMin">
+          <option value="">不限</option>
+          <option value="1000">≥ 1000万元</option>
+          <option value="5000">≥ 5000万元</option>
+          <option value="10000">≥ 1亿元</option>
+        </select>
+      </div>
+      <div class="filter-group otc-only" hidden>
+        <span class="filter-label">申购状态</span>
+        <select class="select" id="subStatusSelect">
+          <option value="">不限</option>
+          <option value="开放申购">开放申购</option>
+          <option value="限大额">限大额</option>
+          <option value="暂停申购">暂停申购</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="selected-row" id="selectedRow" hidden>
+      <span class="selected-label">已选：</span>
+      <div class="selected-chips" id="selectedChips"></div>
+    </div>
+  </section>
+
+  <!-- 列表 -->
+  <section class="card table-panel" aria-label="基金列表">
+    <div class="table-toolbar">
+      <div class="toolbar-left">
+        <div class="dropdown" id="colsDropdown">
+          <button class="btn btn-ghost btn-sm dropdown-toggle">字段设置<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="m6 9 6 6 6-6"/></svg></button>
+          <div class="dropdown-menu" id="colsMenu" hidden></div>
+        </div>
+        <div class="density-toggle" id="densityToggle" title="表格密度">
+          <button class="density-btn is-active" data-density="standard">标准</button>
+          <button class="density-btn" data-density="compact">紧凑</button>
+        </div>
+      </div>
+      <div class="toolbar-right">
+        <label class="page-size">每页
+          <select class="select select-sm" id="pageSizeSelect">
+            <option value="20">20</option>
+            <option value="50" selected>50</option>
+            <option value="100">100</option>
+          </select>条
+        </label>
+        <div class="mobile-sort" id="mobileSort" hidden>
+          <select class="select select-sm" id="sortSelect"></select>
+        </div>
+      </div>
+    </div>
+
+    <div class="table-scroll" id="tableScroll">
+      <div class="skeleton-wrap" id="skeleton" hidden></div>
+      <table class="fund-table" id="fundTable"><colgroup id="tableCols"></colgroup><thead id="tableHead"></thead><tbody id="tableBody"></tbody></table>
+      <div class="empty-state" id="emptyState" hidden></div>
+    </div>
+
+    <div class="table-footer">
+      <div class="page-info" id="pageInfo">-</div>
+      <div class="pager" id="pager"></div>
+    </div>
+  </section>
+
+  <footer class="site-footer">
+    <div class="footer-sources" id="footerSources"></div>
+    <p class="footer-disclaimer" id="footerDisclaimer"></p>
+    <p class="footer-note">数据接口：东方财富·天天基金公开数据 · 本站为信息汇总与筛选工具，不构成投资建议 · 基金有风险，投资需谨慎</p>
+  </footer>
+</main>
+
+<!-- 对比栏 -->
+<div class="compare-bar" id="compareBar" hidden>
+  <div class="compare-chips" id="compareChips"></div>
+  <div class="compare-actions">
+    <button class="btn btn-ghost btn-sm" id="compareClear">清空</button>
+    <button class="btn btn-primary btn-sm" id="compareStart">开始对比</button>
+  </div>
+</div>
+
+<!-- 对比弹窗 -->
+<div class="modal-mask" id="compareModal" hidden>
+  <div class="modal modal-compare">
+    <div class="modal-head"><h3>基金对比</h3><button class="modal-close" data-close="compareModal" aria-label="关闭">✕</button></div>
+    <div class="modal-body" id="compareBody"></div>
+  </div>
+</div>
+
+<!-- 详情弹窗 -->
+<div class="modal-mask" id="detailModal" hidden>
+  <div class="modal modal-detail">
+    <div class="modal-head"><h3 id="detailTitle">基金详情</h3><button class="modal-close" data-close="detailModal" aria-label="关闭">✕</button></div>
+    <div class="modal-body" id="detailBody"></div>
+  </div>
+</div>
+
+<!-- 移动端筛选面板 -->
+<div class="sheet-mask" id="filterSheet" hidden>
+  <div class="sheet">
+    <div class="sheet-head"><h3>筛选条件</h3><button class="modal-close" data-close="filterSheet" aria-label="关闭">✕</button></div>
+    <div class="sheet-body" id="sheetBody"></div>
+    <div class="sheet-footer">
+      <button class="btn btn-outline" id="sheetReset">重置</button>
+      <button class="btn btn-primary" id="sheetOk">确定</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast" hidden></div>
+
+<script src="assets/js/app.js"></script>
+</body>
+</html>
