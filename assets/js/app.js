@@ -194,7 +194,7 @@ const state = {
   meta: null,
   loading: false,
   search: "",
-  filters: { regions: new Set(), styles: new Set(), industries: new Set(), index: "", scaleMin: null, scaleMax: null, feeMax: null, premMin: null, premMax: null, retMin: null, liqMin: "", subStatus: "" },
+  filters: { regions: new Set(), styles: new Set(), industries: new Set(), indices: new Set(), scaleMin: null, scaleMax: null, feeMax: null, premMin: null, premMax: null, retMin: null, liqMin: "", subStatus: "" },
   sort: { key: "y1", dir: -1 },
   page: 1,
   pageSize: LS.get("pageSize", 50),
@@ -292,8 +292,8 @@ function rebuildFilterOptions() {
   $("#regionChips").innerHTML = regions.map(([v, n]) => chip(v, n, state.filters.regions.has(v))).join("") || `<span class="cell-dim" style="font-size:12.5px">—</span>`;
   $("#styleChips").innerHTML = styles.map(([v, n]) => chip(v, n, state.filters.styles.has(v))).join("");
   $("#industryChips").innerHTML = inds.slice(0, 12).map(([v, n]) => chip(v, n, state.filters.industries.has(v))).join("");
-  $("#indexSelect").innerHTML = `<option value="">全部指数（${idx.length}）</option>` +
-    idx.slice(0, 400).map(([v, n]) => `<option value="${esc(v)}"${state.filters.index === v ? " selected" : ""}>${esc(v)}（${n}）</option>`).join("");
+  INDEX_OPTS = idx;
+  refreshIndexPanels();
 
   // 移动端排序下拉
   const cols = COLS_BY_TAB[tab].filter(c => c.sortable && c.key !== "name" && c.key !== "code");
@@ -312,11 +312,85 @@ function rebuildFilterOptions() {
   $$(".otc-only").forEach(el => el.hidden = tab !== "otc");
 }
 
+/* ---------------- 跟踪指数多选面板 ---------------- */
+let INDEX_OPTS = [];
+
+function indexToggleLabel() {
+  const n = state.filters.indices.size;
+  return n ? `跟踪指数 · 已选 ${n}` : `全部指数（${INDEX_OPTS.length}）`;
+}
+
+function refreshIndexToggle() {
+  const btn = $("#indexToggle");
+  if (btn) btn.textContent = indexToggleLabel() + " ▾";
+}
+
+function refreshIndexPanels() {
+  refreshIndexToggle();
+  for (const sel of ["#indexPanel", "#sIndexPanel"]) {
+    const p = $(sel);
+    if (p && p.querySelector(".index-list")) updateIndexList(p);
+  }
+}
+
+function ensureIndexSkeleton(root) {
+  if (root.querySelector(".index-search")) return;
+  root.innerHTML = `<input type="search" class="index-search" placeholder="搜索指数名称…">
+    <div class="index-list"></div>
+    <div class="index-panel-foot"><span class="index-total"></span><button type="button" class="index-clear">清空已选</button></div>`;
+}
+
+function updateIndexList(root) {
+  const term = (root.dataset.term || "").trim().toLowerCase();
+  const list = root.querySelector(".index-list");
+  if (!list) return;
+  const items = INDEX_OPTS.filter(([v]) => !term || v.toLowerCase().includes(term));
+  list.innerHTML = items.length
+    ? items.map(([v, n]) => `<label class="index-item" title="${esc(v)}"><input type="checkbox" value="${esc(v)}"${state.filters.indices.has(v) ? " checked" : ""}><span class="iname">${esc(v)}</span><span class="n">${n}</span></label>`).join("")
+    : `<div class="index-empty">无匹配指数</div>`;
+  const tot = root.querySelector(".index-total");
+  if (tot) tot.textContent = `共 ${INDEX_OPTS.length} 个指数 · 已选 ${state.filters.indices.size}`;
+}
+
+function onIndexChange(fromRoot) {
+  refreshIndexToggle();
+  state.page = 1;
+  renderTable();
+  renderSelectedChips();
+  const n = activeFilterCount();
+  $("#filterBadge").hidden = !n; $("#filterBadge").textContent = n;
+  for (const sel of ["#indexPanel", "#sIndexPanel"]) {
+    const p = $(sel);
+    if (p && p !== fromRoot && p.querySelector(".index-list")) updateIndexList(p);
+  }
+}
+
+function bindIndexPanel(root) {
+  root.addEventListener("input", (e) => {
+    if (e.target.classList.contains("index-search")) {
+      root.dataset.term = e.target.value;
+      updateIndexList(root);
+    }
+  });
+  root.addEventListener("change", (e) => {
+    const cb = e.target.closest("input[type=checkbox]");
+    if (!cb) return;
+    cb.checked ? state.filters.indices.add(cb.value) : state.filters.indices.delete(cb.value);
+    onIndexChange(root);
+  });
+  root.addEventListener("click", (e) => {
+    if (e.target.closest(".index-clear")) {
+      state.filters.indices.clear();
+      updateIndexList(root);
+      onIndexChange(root);
+    }
+  });
+}
+
 /* ---------------- 筛选/排序/分页 ---------------- */
 function activeFilterCount() {
   const f = state.filters;
-  let n = f.regions.size + f.styles.size + f.industries.size;
-  if (f.index) n++;
+  let n = f.regions.size + f.styles.size + f.industries.size + f.indices.size;
   if (f.scaleMin != null) n++;
   if (f.scaleMax != null) n++;
   if (f.feeMax != null) n++;
@@ -341,7 +415,7 @@ function applyFilters(funds) {
     if (f.regions.size && !(x.regions || []).some(r => f.regions.has(r))) return false;
     if (f.styles.size && !f.styles.has(x.style)) return false;
     if (f.industries.size && !(x.industries || []).some(r => f.industries.has(r))) return false;
-    if (f.index && x.trackIndex !== f.index) return false;
+    if (f.indices.size && !f.indices.has(x.trackIndex || "")) return false;
     if (f.scaleMin != null && !(x.scaleYi >= f.scaleMin)) return false;
     if (f.scaleMax != null && !(x.scaleYi <= f.scaleMax)) return false;
     if (f.feeMax != null && !(x.opsFee != null && x.opsFee <= f.feeMax)) return false;
@@ -540,7 +614,7 @@ function renderSelectedChips() {
   f.regions.forEach(v => add("region:" + v, v));
   f.styles.forEach(v => add("style:" + v, v));
   f.industries.forEach(v => add("industry:" + v, v));
-  if (f.index) add("index", f.index);
+  f.indices.forEach(v => add("index:" + v, "指数·" + (v.length > 12 ? v.slice(0, 12) + "…" : v)));
   if (f.scaleMin != null) add("scaleMin", "规模≥" + f.scaleMin + "亿");
   if (f.scaleMax != null) add("scaleMax", "规模≤" + f.scaleMax + "亿");
   if (f.feeMax != null) add("feeMax", "费率≤" + f.feeMax + "%");
@@ -559,7 +633,7 @@ function clearFilterToken(token) {
   if (token.startsWith("region:")) f.regions.delete(token.slice(7));
   else if (token.startsWith("style:")) f.styles.delete(token.slice(6));
   else if (token.startsWith("industry:")) f.industries.delete(token.slice(9));
-  else if (token === "index") f.index = "";
+  else if (token.startsWith("index:")) f.indices.delete(token.slice(6));
   else if (token === "scaleMin") f.scaleMin = null;
   else if (token === "scaleMax") f.scaleMax = null;
   else if (token === "feeMax") f.feeMax = null;
@@ -576,7 +650,7 @@ function clearFilterToken(token) {
 }
 
 function resetFilters() {
-  state.filters = { regions: new Set(), styles: new Set(), industries: new Set(), index: "", scaleMin: null, scaleMax: null, feeMax: null, premMin: null, premMax: null, retMin: null, liqMin: "", subStatus: "" };
+  state.filters = { regions: new Set(), styles: new Set(), industries: new Set(), indices: new Set(), scaleMin: null, scaleMax: null, feeMax: null, premMin: null, premMax: null, retMin: null, liqMin: "", subStatus: "" };
   state.search = "";
   $("#searchInput").value = "";
   syncAdvancedInputs();
@@ -595,7 +669,6 @@ function syncAdvancedInputs() {
   $("#retMin").value = f.retMin ?? "";
   $("#liqMin").value = f.liqMin;
   $("#subStatusSelect").value = f.subStatus;
-  $("#indexSelect").value = f.index;
 }
 
 /* ---------------- 字段设置 ---------------- */
@@ -756,29 +829,27 @@ async function openDetail(code) {
     </div>` : "";
 
   $("#detailBody").innerHTML = `
-    <div class="detail-head">
-      <div>
-        <div class="detail-tags">${tags.join("")}</div>
-      </div>
-      <div class="detail-actions">
-        <button class="btn btn-outline btn-sm" id="detailCompare">＋ 加入对比</button>
-        <button class="btn btn-outline btn-sm" id="detailWatch">${star ? "★ 已自选" : "☆ 加自选"}</button>
-      </div>
-    </div>
+    <div class="detail-head"><div class="detail-tags">${tags.join("")}</div></div>
     <div class="detail-section"><h4>核心指标</h4><div class="metric-grid">${cells.join("")}</div></div>
     <div class="detail-section"><h4>近1年净值走势</h4><canvas class="spark" id="sparkCanvas" height="130"></canvas><div class="spark-tip" id="sparkTip">加载中…</div></div>
     <div class="detail-section"><h4>区间收益</h4><div class="return-strip">${retCells}</div></div>
     ${f.trackIndex ? `<div class="detail-section"><h4>跟踪标的</h4><p style="font-size:13.5px">${esc(f.trackIndex)}${f.benchmark ? ` · 业绩比较基准：${esc(f.benchmark)}` : ""}</p></div>` : (f.benchmark ? `<div class="detail-section"><h4>业绩比较基准</h4><p style="font-size:13.5px">${esc(f.benchmark)}</p></div>` : "")}
     ${holdings}
-    <div class="detail-links">
+    <div class="detail-section" style="margin-top:20px"><p class="cell-dim" style="font-size:12px">数据来自东方财富·天天基金公开接口 · 更新于 ${esc(state.meta?.generatedAtText || "")}</p></div>`;
+  $("#detailFoot").innerHTML = `
+    <div class="foot-btns">
+      <button class="btn btn-outline btn-sm" id="detailCompare">＋ 加入对比</button>
+      <button class="btn btn-outline btn-sm" id="detailWatch">${star ? "★ 已自选" : "☆ 加自选"}</button>
+    </div>
+    <div class="foot-links">
       <a href="http://fund.eastmoney.com/${esc(f.code)}.html" target="_blank" rel="noopener">天天基金档案 ↗</a>
-      ${isEtf ? `<a href="https://quote.eastmoney.com/${f.market === "SZ" ? "sz" : "sh"}${esc(f.code)}.html" target="_blank" rel="noopener">场内行情 ↗</a>` : ""}
-      <span class="cell-dim" style="margin-left:auto;font-size:12px">数据来自东方财富公开接口 · ${esc(state.meta?.generatedAtText || "")}</span>
+      ${f.price != null ? `<a href="https://quote.eastmoney.com/${f.market === "SZ" ? "sz" : "sh"}${esc(f.code)}.html" target="_blank" rel="noopener">场内行情 ↗</a>` : ""}
+      <a class="ms-link" href="https://www.morningstar.cn/fund/${esc(f.code)}.html" target="_blank" rel="noopener">晨星基金详情（推荐）↗</a>
     </div>`;
-  openModal("detailModal");
+  openModal("detailDrawer");
   $("#detailCompare").onclick = () => toggleCompare(code);
   $("#detailWatch").onclick = () => { toggleWatch(code); $("#detailWatch").textContent = state.watch.has(code) ? "★ 已自选" : "☆ 加自选"; };
-  drawSpark(code);
+  requestAnimationFrame(() => drawSpark(code));
 }
 
 async function drawSpark(code) {
@@ -879,7 +950,8 @@ function openFilterSheet() {
   wrap.innerHTML = `<div class="filter-group"><span class="filter-label">国家/地区</span><div class="chip-list" id="sRegion"></div></div>
     <div class="filter-group"><span class="filter-label">基金类型</span><div class="chip-list" id="sStyle"></div></div>
     <div class="filter-group"><span class="filter-label">行业主题</span><div class="chip-list" id="sInd"></div></div>
-    <div class="filter-group"><span class="filter-label">跟踪指数</span><select class="select" id="sIndex"></select></div>
+    <div class="filter-group"><span class="filter-label">跟踪指数（可多选）</span></div>
+    <div class="index-panel" id="sIndexPanel"></div>
     <div class="filter-group${state.tab === "etf" ? "" : " etf-only"}"><span class="filter-label">溢价率（%）</span>
       <div class="range-inputs"><input type="number" id="sPremMin" placeholder="最小" step="0.1"><span class="range-sep">—</span><input type="number" id="sPremMax" placeholder="最大" step="0.1"></div></div>
     <div class="filter-group"><span class="filter-label">规模（亿元）</span>
@@ -896,7 +968,10 @@ function openFilterSheet() {
   $("#sRegion", body).innerHTML = $("#regionChips").innerHTML;
   $("#sStyle", body).innerHTML = $("#styleChips").innerHTML;
   $("#sInd", body).innerHTML = $("#industryChips").innerHTML;
-  $("#sIndex", body).innerHTML = $("#indexSelect").innerHTML;
+  const sIdx = $("#sIndexPanel", body);
+  ensureIndexSkeleton(sIdx);
+  updateIndexList(sIdx);
+  bindIndexPanel(sIdx);
   $("#sPremMin", body).value = f.premMin ?? "";
   $("#sPremMax", body).value = f.premMax ?? "";
   $("#sScaleMin", body).value = f.scaleMin ?? "";
@@ -920,7 +995,6 @@ function applySheet() {
   $("#searchInput").value = state.search;
   const liq = $("#sLiq", body); if (liq) f.liqMin = liq.value;
   const sub = $("#sSub", body); if (sub) f.subStatus = sub.value;
-  f.index = $("#sIndex", body).value;
   state.page = 1;
   syncAdvancedInputs();
   rebuildFilterOptions();
@@ -992,8 +1066,13 @@ function bindEvents() {
       $("#filterBadge").hidden = !n; $("#filterBadge").textContent = n;
     });
   });
-  $("#indexSelect").addEventListener("change", (e) => { state.filters.index = e.target.value; state.page = 1; renderTable(); });
-
+  /* 跟踪指数多选面板（桌面端） */
+  $("#indexToggle").addEventListener("click", () => {
+    const p = $("#indexPanel");
+    p.hidden = !p.hidden;
+    if (!p.hidden) { ensureIndexSkeleton(p); updateIndexList(p); }
+  });
+  bindIndexPanel($("#indexPanel"));
   /* 高级筛选输入 */
   const bindNum = (id, key) => {
     $("#" + id).addEventListener("change", (e) => {
@@ -1121,15 +1200,19 @@ function bindEvents() {
   });
   $("#compareClear").addEventListener("click", () => { state.compare = []; renderCompareBar(); renderTable(); });
   $("#compareStart").addEventListener("click", buildCompareTable);
+  $("#compareBody").addEventListener("click", (e) => {
+    const d = e.target.closest("[data-detail]");
+    if (d) openDetail(d.dataset.detail);
+  });
 
-  /* 弹窗关闭 */
-  $$(".modal-mask").forEach(mask => {
+  /* 弹窗与抽屉关闭 */
+  $$(".modal-mask, .drawer-mask").forEach(mask => {
     mask.addEventListener("click", (e) => {
       if (e.target === mask || e.target.closest("[data-close]")) closeModal(mask.id);
     });
   });
   document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") { $$(".modal-mask:not([hidden])").forEach(m => closeModal(m.id)); if (!$("#filterSheet").hidden) closeModal("filterSheet"); }
+    if (e.key === "Escape") { $$(".modal-mask:not([hidden]), .drawer-mask:not([hidden])").forEach(m => closeModal(m.id)); if (!$("#filterSheet").hidden) closeModal("filterSheet"); }
   });
 
   /* 移动端 */
