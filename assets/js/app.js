@@ -38,6 +38,30 @@ const LS = {
   set(k, v) { try { localStorage.setItem("gfp." + k, JSON.stringify(v)); } catch { } },
 };
 
+function snapshotFilters() {
+  const f = state.filters;
+  return {
+    search: state.search,
+    regions: [...f.regions], styles: [...f.styles], industries: [...f.industries], indices: [...f.indices],
+    scaleMin: f.scaleMin, scaleMax: f.scaleMax, feeMax: f.feeMax, premMin: f.premMin, premMax: f.premMax,
+    retMin: f.retMin, liqMin: f.liqMin, subStatus: f.subStatus,
+  };
+}
+
+function applySnapshot(tab, snap) {
+  if (!snap) return;
+  const f = freshFilters();
+  f.regions = new Set(snap.regions || []);
+  f.styles = new Set(snap.styles || []);
+  f.industries = new Set(snap.industries || []);
+  f.indices = new Set(snap.indices || []);
+  for (const k of ["scaleMin", "scaleMax", "feeMax", "premMin", "premMax", "retMin"]) f[k] = snap[k] ?? null;
+  f.liqMin = snap.liqMin || "";
+  f.subStatus = snap.subStatus || "";
+  state._filters[tab] = f;
+  state._search[tab] = snap.search || "";
+}
+
 let toastTimer = null;
 function toast(msg, ms = 2200) {
   const el = $("#toast");
@@ -57,21 +81,13 @@ function col(key, label, w, opts = {}) {
 const REGION_BADGE = (r) => r === "中国香港" ? "tag-hk" : "tag-gold";
 
 const COMMON_RENDER = {
-  name: (f, tab) => {
-    const tags = [];
-    if (tab === "etf") tags.push(`<span class="tag">${esc(f.style || "")}</span>`);
-    else tags.push(`<span class="tag">${esc(f.style || "")}</span>`);
-    if (f.share && f.share !== "主份额" && tab !== "etf") tags.push(`<span class="tag">${esc(f.share)}</span>`);
-    if (tab === "watch") {
-      const m = f.onExchange ? (f.subStatus ? "场内外" : "场内") : "场外";
-      tags.push(`<span class="tag ${m === "场内" || m === "场内外" ? "tag-gold" : ""}">${m}</span>`);
-    }
-    return `<div class="fund-name">
+  name: (f) => `<div class="fund-name">
       <button class="mobile-expand" aria-label="展开" data-expand="${f.code}"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="m6 9 6 6 6-6"/></svg></button>
-      <div><div class="fund-name-text" data-detail="${f.code}" title="${esc(f.name)}">${esc(f.name)}</div>${tags.length ? `<div style="margin-top:3px;display:flex;gap:4px;flex-wrap:wrap">${tags.join("")}</div>` : ""}</div>
-      <span class="fund-code mobile-code">${esc(f.code)}</span>
-    </div>`;
-  },
+      <div>
+        <div class="fund-name-text" data-detail="${f.code}" title="${esc(f.name)}">${esc(f.name)}</div>
+        <div class="fund-code">${esc(f.code)}</div>
+      </div>
+    </div>`,
   code: (f) => `<span class="num fund-code">${esc(f.code)}</span>`,
   trackIndex: (f) => f.trackIndex ? `<span class="cell-dim" title="${esc(f.trackIndex)}">${esc(f.trackIndex.length > 18 ? f.trackIndex.slice(0, 18) + "…" : f.trackIndex)}</span>` : `<span class="cell-dim">—</span>`,
   regions: (f) => (f.regions || []).length ? f.regions.slice(0, 2).map(r => `<span class="tag ${REGION_BADGE(r)}">${esc(r)}</span>`).join(" ") : `<span class="cell-dim">—</span>`,
@@ -85,7 +101,6 @@ const COMMON_RENDER = {
 /* etf tab */
 const ETF_COLS = [
   col("name", "基金名称", 216, { fixed: true, align: "left", render: COMMON_RENDER.name }),
-  col("code", "基金代码", 84, { fixed: true, align: "left", render: COMMON_RENDER.code }),
   col("price", "最新价", 78, { type: "num", render: f => `<span class="num">${fmtNum(f.price, 3)}</span>` }),
   col("changePct", "日涨跌幅", 88, { render: f => pctHtml(f.changePct) }),
   col("premiumPct", "溢价率", 86, { render: f => pctHtml(f.premiumPct, { warn: true }), title: "溢价率为正代表价格高于基金净值参考（IOPV）" }),
@@ -126,7 +141,6 @@ function ret(f, k) { return (f.returns || {})[k]; }
 /* otc tab */
 const OTC_COLS = [
   col("name", "基金名称", 216, { fixed: true, align: "left", render: COMMON_RENDER.name }),
-  col("code", "基金代码", 84, { fixed: true, align: "left", render: COMMON_RENDER.code }),
   col("nav", "单位净值", 86, { render: f => `<span class="num">${fmtNum(f.nav, 4)}</span>` }),
   col("navChg", "净值日涨幅", 92, { render: f => pctHtml(f.navChg) }),
   col("y1", "近1年收益", 96, { key2: "returns.y1", render: f => pctHtml(ret(f, "y1")) }),
@@ -137,6 +151,14 @@ const OTC_COLS = [
       const tip = f.subLimit != null ? ` title="单日累计购买上限 ${esc(fmtLimit(f.subLimit))}"` : "";
       return `<span class="num ${c}"${tip}>${esc(f.subStatus)}</span>`;
     },
+  }),
+  col("subLimit", "限购金额", 96, {
+    render: f => {
+      if (f.subLimit != null) return `<span class="num">${fmtLimit(f.subLimit)}</span>`;
+      if (f.subStatus && f.subStatus.includes("开放")) return `<span class="cell-dim">不限</span>`;
+      return `<span class="cell-dim">—</span>`;
+    },
+    title: "单日累计购买上限（最大可买入金额）",
   }),
   col("trackIndex", "跟踪指数", 158, { align: "left", render: COMMON_RENDER.trackIndex }),
   col("scaleYi", "规模", 96, { render: COMMON_RENDER.scaleYi }),
@@ -151,7 +173,6 @@ const OTC_COLS_EXTRA = [
   col("custFee", "托管费率", 84, { render: f => `<span class="num">${fmtPct(f.custFee, false)}</span>` }),
   col("svcFee", "销售服务费", 90, { render: f => `<span class="num">${fmtPct(f.svcFee, false)}</span>` }),
   col("subFee", "申购费率", 84, { render: f => `<span class="num">${f.subFee != null ? fmtPct(f.subFee, false) : "—"}</span>`, title: "最高申购费率（原费率）" }),
-  col("subLimit", "申购限额", 96, { render: f => `<span class="num">${fmtLimit(f.subLimit)}</span>` }),
   col("trackingErr", "跟踪误差", 86, { render: f => `<span class="num">${fmtPct(f.trackingErr, false)}</span>` }),
   col("mdd1y", "最大回撤(近1年)", 120, { render: f => pctHtml(f.mdd1y, { sign: false }) }),
   col("mddAll", "最大回撤(成立来)", 128, { render: f => pctHtml(f.mddAll, { sign: false }) }),
@@ -165,7 +186,6 @@ const OTC_COLS_EXTRA = [
 /* watch 视图 */
 const WATCH_COLS = [
   col("name", "基金名称", 216, { fixed: true, align: "left", render: COMMON_RENDER.name }),
-  col("code", "基金代码", 84, { fixed: true, align: "left", render: COMMON_RENDER.code }),
   col("market", "交易方式", 84, {
     render: f => `<span class="tag ${f.onExchange ? "tag-gold" : ""}">${f.onExchange ? (f.subStatus ? "场内外" : "场内") : "场外"}</span>`,
   }),
@@ -181,20 +201,27 @@ const WATCH_COLS = [
 
 const COLS_BY_TAB = { etf: [...ETF_COLS, ...ETF_COLS_EXTRA], otc: [...OTC_COLS, ...OTC_COLS_EXTRA], watch: WATCH_COLS };
 const DEFAULT_VISIBLE = {
-  etf: ["name", "code", "price", "changePct", "premiumPct", "trackIndex", "scaleYi", "opsFee", "amountWan", "y1", "ops"],
-  otc: ["name", "code", "nav", "navChg", "y1", "subStatus", "trackIndex", "scaleYi", "opsFee", "ops"],
+  etf: ["name", "price", "changePct", "premiumPct", "trackIndex", "scaleYi", "opsFee", "amountWan", "y1", "ops"],
+  otc: ["name", "nav", "navChg", "y1", "subStatus", "subLimit", "trackIndex", "scaleYi", "opsFee", "ops"],
   watch: WATCH_COLS.map(c => c.key),
 };
 
 /* ---------------- 状态 ---------------- */
+const freshFilters = () => ({ regions: new Set(), styles: new Set(), industries: new Set(), indices: new Set(), scaleMin: null, scaleMax: null, feeMax: null, premMin: null, premMax: null, retMin: null, liqMin: "", subStatus: "" });
+
 const state = {
   view: "query",            // query | watch
   tab: "etf",               // etf | otc
   data: { etf: null, otc: null },   // {updated, funds}
   meta: null,
   loading: false,
-  search: "",
-  filters: { regions: new Set(), styles: new Set(), industries: new Set(), indices: new Set(), scaleMin: null, scaleMax: null, feeMax: null, premMin: null, premMax: null, retMin: null, liqMin: "", subStatus: "" },
+  // 场内/场外各自独立的筛选与搜索（filters/search 为当前 tab 的代理）
+  _filters: { etf: freshFilters(), otc: freshFilters() },
+  _search: { etf: "", otc: "" },
+  get filters() { return this._filters[this.tab]; },
+  set filters(v) { this._filters[this.tab] = v; },
+  get search() { return this._search[this.tab]; },
+  set search(v) { this._search[this.tab] = v; },
   sort: { key: "y1", dir: -1 },
   page: 1,
   pageSize: LS.get("pageSize", 50),
@@ -337,7 +364,7 @@ function ensureIndexSkeleton(root) {
   if (root.querySelector(".index-search")) return;
   root.innerHTML = `<input type="search" class="index-search" placeholder="搜索指数名称…">
     <div class="index-list"></div>
-    <div class="index-panel-foot"><span class="index-total"></span><button type="button" class="index-clear">清空已选</button></div>`;
+    <div class="index-panel-foot"><span class="index-total"></span><span class="foot-actions"><button type="button" class="index-clear">清空已选</button>${root.id === "indexPanel" ? `<button type="button" class="btn btn-primary btn-sm index-ok">确定</button>` : ""}</span></div>`;
 }
 
 function updateIndexList(root) {
@@ -379,6 +406,7 @@ function bindIndexPanel(root) {
     onIndexChange(root);
   });
   root.addEventListener("click", (e) => {
+    if (e.target.closest(".index-ok")) { root.hidden = true; return; }
     if (e.target.closest(".index-clear")) {
       state.filters.indices.clear();
       updateIndexList(root);
@@ -557,6 +585,13 @@ function renderTable() {
       : `<div class="empty-ico">⌕</div><p>没有符合条件的基金，试试调整筛选条件或重置</p>`;
   } else empty.hidden = true;
 
+  /* 记住筛选：开启时把当前筛选快照写入本地 */
+  if (LS.get("remember", { etf: false, otc: false })[state.tab]) {
+    const sf = LS.get("savedFilters", {});
+    sf[state.tab] = snapshotFilters();
+    LS.set("savedFilters", sf);
+  }
+
   /* 汇总信息 */
   $("#resultCount").innerHTML = `共 <b>${total.toLocaleString("zh-CN")}</b> 只`;
   $("#pageInfo").textContent = total ? `第 ${state.page} / ${pages} 页 · 共 ${total.toLocaleString("zh-CN")} 只` : "共 0 只";
@@ -650,7 +685,7 @@ function clearFilterToken(token) {
 }
 
 function resetFilters() {
-  state.filters = { regions: new Set(), styles: new Set(), industries: new Set(), indices: new Set(), scaleMin: null, scaleMax: null, feeMax: null, premMin: null, premMax: null, retMin: null, liqMin: "", subStatus: "" };
+  state.filters = freshFilters();
   state.search = "";
   $("#searchInput").value = "";
   syncAdvancedInputs();
@@ -1030,6 +1065,12 @@ function bindEvents() {
     state.expanded.clear();
     location.hash = "#" + state.tab;
     await loadTab(state.tab);
+    const rem = LS.get("remember", { etf: false, otc: false });
+    const sf = LS.get("savedFilters", {});
+    if (rem[state.tab] && sf[state.tab]) applySnapshot(state.tab, sf[state.tab]);
+    $("#rememberChk").checked = !!rem[state.tab];
+    $("#searchInput").value = state.search;
+    syncAdvancedInputs();
     rebuildFilterOptions(); renderColsMenu(); renderTable();
   });
 
@@ -1251,6 +1292,24 @@ function bindEvents() {
     renderTable();
   });
 
+  /* 记住筛选开关 */
+  $("#rememberChk").addEventListener("change", (e) => {
+    const tab = state.tab;
+    const on = e.target.checked;
+    const rem = LS.get("remember", { etf: false, otc: false });
+    rem[tab] = on;
+    LS.set("remember", rem);
+    const sf = LS.get("savedFilters", {});
+    if (on) {
+      sf[tab] = snapshotFilters();
+      LS.set("savedFilters", sf);
+      toast("记住当前筛选条件，下次访问默认使用该条件展示数据");
+    } else {
+      sf[tab] = null;
+      LS.set("savedFilters", sf);
+    }
+  });
+
   /* 刷新 */
   $("#refreshBtn").addEventListener("click", async () => {
     const btn = $("#refreshBtn");
@@ -1294,6 +1353,12 @@ async function init() {
   $$("#tabBar .tab").forEach(b => b.classList.toggle("is-active", b.dataset.tab === state.tab));
   $$("#topnav .topnav-link").forEach(b => b.classList.toggle("is-active", b.dataset.view === state.view));
   if (state.view === "watch") $(".query-panel").style.display = "none";
+
+  const rem0 = LS.get("remember", { etf: false, otc: false });
+  const sf0 = LS.get("savedFilters", {});
+  if (rem0[state.tab] && sf0[state.tab]) applySnapshot(state.tab, sf0[state.tab]);
+  $("#rememberChk").checked = !!rem0[state.tab];
+  $("#searchInput").value = state.search;
 
   await loadMeta();
   await loadTab(state.tab);
